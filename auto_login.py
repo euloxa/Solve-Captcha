@@ -62,7 +62,7 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
                 accounts.append((username, password))
     return accounts
 
-def get_roblox_blob(username: str, password: str) -> Optional[str]:
+def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Optional[str]]:
     try:
         log("  → Fetching Roblox Blob...")
         session = requests.Session()
@@ -81,7 +81,7 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
         
         if not csrf_token:
             log("  ❌ Gagal mendapatkan CSRF Token.")
-            return None
+            return None, None
         
         log("  ✅ CSRF Token didapat.")
         
@@ -90,6 +90,10 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
         r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
         
         log(f"  → Status Code Roblox: {r.status_code}")
+        
+        print("HEADERS:", dict(r.headers))
+        
+        cookies_str = "; ".join([f"{k}={v}" for k, v in session.cookies.get_dict().items()])
 
         metadata_b64 = r.headers.get("Rblx-Challenge-Metadata") or r.headers.get("rblx-challenge-metadata")
         if metadata_b64:
@@ -99,7 +103,7 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
                 blob = metadata.get("dataExchangeBlob")
                 if blob:
                     log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
-                    return blob
+                    return blob, cookies_str
             except Exception as e:
                 log(f"  ❌ Gagal decode metadata header: {e}")
 
@@ -108,19 +112,19 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
             blob = body_json.get("data", {}).get("dataExchangeBlob") or body_json.get("dataExchangeBlob")
             if blob:
                 log(f"  ✅ Blob ditemukan di Body! (Panjang: {len(blob)})")
-                return blob
+                return blob, cookies_str
         except Exception:
             pass
 
         log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:200]}")
-        return None
+        return None, None
     except Exception as e:
         log(f"  ❌ Error ambil blob: {e}")
-        return None
+        return None, None
 
 def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
     try:
-        blob = get_roblox_blob(username, password)
+        blob, cookies_str = get_roblox_blob(username, password)
         if not blob:
             return False, "Gagal mendapatkan blob dari Roblox (Cek Proxy/IP)"
 
@@ -132,6 +136,8 @@ def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
                 "websitePublicKey": CONFIG['roblox_funcaptcha_key'],
                 "websiteSubdomain": CONFIG['roblox_subdomain'],
                 "proxy": CONFIG['proxy_url'],
+                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "cookies": cookies_str,
                 "data": json.dumps({"blob": blob})
             }
         }
