@@ -1,0 +1,13 @@
+# Example accounts file for Device 1
+# Format: username:password (one per line)
+
+username1:password123
+username2:password456
+username3:password789
+username4:passwordabc
+username5:passworddef
+username6:passwordghi
+username7:passwordjkl
+username8:passwordmno
+username9:passwordpqr
+username10:passwordstu
