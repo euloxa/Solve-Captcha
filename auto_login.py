@@ -4,13 +4,17 @@ from datetime import datetime
 from typing import List, Tuple, Optional
 
 VIA_PACKAGES = [f"mark.via.g{suffix}" for suffix in "pqrstuvwxyz"]
+
+PROXIES = [
+
+]
+
 CONFIG = {
     "funbypass_api_key": "ISI_API_KEY_LU", 
     "funbypass_api_url": "https://api.funbypass.com",
     "roblox_login_url": "https://www.roblox.com/login",
     "roblox_funcaptcha_key": "476068BF-9607-4799-B53D-966BE98E2B81",
     "roblox_subdomain": "client-api",
-    "proxy_url": "socks5://user:pass@ip:port", 
     "delay_after_launch": 5, "delay_after_input": 1, "delay_between_accounts": 120,
     "username_field": [540, 400], "password_field": [540, 500], "login_button": [540, 600],
     "max_captcha_retries": 1
@@ -65,15 +69,11 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
     except Exception:
         return None
 
-def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
+def solve_captcha(username: str, password: str, proxy_str: str) -> Tuple[bool, Optional[str]]:
     try:
         blob = get_roblox_blob(username, password)
         if not blob: 
             return False, "Gagal mendapatkan blob/sessionId dari Roblox"
-
-        proxy_str = CONFIG['proxy_url']
-        if not proxy_str.startswith(("http://", "socks4://", "socks5://")) or proxy_str.count(':') < 3:
-            return False, "Format proxy salah. Gunakan format: protocol://user:pass@ip:port"
 
         payload = {
             "clientKey": CONFIG['funbypass_api_key'],
@@ -127,8 +127,8 @@ def input_text(text: str):
 def tap(x: int, y: int):
     run_command(f"input tap {x} {y}"); time.sleep(CONFIG['delay_after_input'])
 
-def login_account(username: str, password: str, package: str, account_num: int) -> bool:
-    log(f"\n{'-'*60}\nACCOUNT #{account_num}: {username}\n{'-'*60}")
+def login_account(username: str, password: str, package: str, account_num: int, proxy_str: str) -> bool:
+    log(f"\n{'-'*60}\nACCOUNT #{account_num}: {username}\nProxy: {proxy_str.split('@')[1]}\n{'-'*60}")
     for retry in range(CONFIG['max_captcha_retries'] + 1):
         if retry > 0: log(f"🔄 Retry {retry}/{CONFIG['max_captcha_retries']}")
         
@@ -143,7 +143,7 @@ def login_account(username: str, password: str, package: str, account_num: int) 
         log("   ✅ Credentials entered")
         
         log("3️⃣ Solving captcha...")
-        success, token = solve_captcha(username, password)
+        success, token = solve_captcha(username, password, proxy_str)
         
         if not success or not token:
             log(f"   ❌ Captcha failed: {token}")
@@ -171,7 +171,10 @@ def main():
     success, failed = 0, []
     for idx, (username, password) in enumerate(accounts, 1):
         if idx > len(VIA_PACKAGES): failed.append(username); continue
-        if login_account(username, password, VIA_PACKAGES[idx-1], idx): success += 1
+        
+        proxy_str = PROXIES[(idx - 1) % len(PROXIES)]
+        
+        if login_account(username, password, VIA_PACKAGES[idx-1], idx, proxy_str): success += 1
         else: failed.append(username)
         if idx < len(accounts): time.sleep(CONFIG['delay_between_accounts'])
     
