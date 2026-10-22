@@ -62,7 +62,7 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
                 accounts.append((username, password))
     return accounts
 
-def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Optional[str]]:
+def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     try:
         log("  → Fetching Roblox Blob...")
         session = requests.Session()
@@ -81,7 +81,7 @@ def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Option
         
         if not csrf_token:
             log("  ❌ Gagal mendapatkan CSRF Token.")
-            return None, None
+            return None, None, None
         
         log("  ✅ CSRF Token didapat.")
         
@@ -90,10 +90,11 @@ def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Option
         r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
         
         log(f"  → Status Code Roblox: {r.status_code}")
-
+        
         cookies_str = "; ".join([f"{k}={v}" for k, v in session.cookies.get_dict().items()])
 
         metadata_b64 = r.headers.get("rblx-challenge-metadata") or r.headers.get("Rblx-Challenge-Metadata")
+        challenge_id = r.headers.get("rblx-challenge-id") or r.headers.get("Rblx-Challenge-Id")
         
         if metadata_b64:
             padding_needed = len(metadata_b64) % 4
@@ -107,14 +108,25 @@ def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Option
                     decoded = base64.urlsafe_b64decode(metadata_b64).decode('utf-8')
                     
                 metadata = json.loads(decoded)
-                log(f"  [DEBUG] Isi Metadata: {json.dumps(metadata)[:300]}...")
+                log(f"  [DEBUG] Metadata Lengkap: {json.dumps(metadata, indent=2)}")
                 
                 blob = metadata.get("dataExchangeBlob")
+                session_id = metadata.get("sessionId")
+                generic_id = metadata.get("genericChallengeId")
+                
                 if blob:
-                    log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
-                    return blob, cookies_str
-                else:
-                    log(f"  ❌ 'dataExchangeBlob' tidak ada di metadata! Keys: {list(metadata.keys())}")
+                    log(f"  ✅ Blob ditemukan (format lama)! (Panjang: {len(blob)})")
+                    return blob, cookies_str, challenge_id
+                
+                if session_id:
+                    log(f"  ✅ sessionId ditemukan (format baru): {session_id}")
+                    return session_id, cookies_str, challenge_id
+                
+                if generic_id:
+                    log(f"  ✅ genericChallengeId ditemukan: {generic_id}")
+                    return generic_id, cookies_str, challenge_id
+                
+                log(f"  ❌ Tidak ada blob/sessionId yang dikenali. Keys: {list(metadata.keys())}")
             except Exception as e:
                 log(f"  ❌ Gagal decode metadata header: {e}")
         else:
@@ -125,21 +137,21 @@ def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Option
             blob = body_json.get("data", {}).get("dataExchangeBlob") or body_json.get("dataExchangeBlob")
             if blob:
                 log(f"  ✅ Blob ditemukan di Body! (Panjang: {len(blob)})")
-                return blob, cookies_str
+                return blob, cookies_str, challenge_id
         except Exception:
             pass
 
-        log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:200]}")
-        return None, None
+        log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:300]}")
+        return None, None, None
     except Exception as e:
         log(f"  ❌ Error ambil blob: {e}")
-        return None, None
+        return None, None, None
 
 def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
     try:
-        blob, cookies_str = get_roblox_blob(username, password)
+        blob, cookies_str, challenge_id = get_roblox_blob(username, password)
         if not blob:
-            return False, "Gagal mendapatkan blob dari Roblox (Cek Proxy/IP)"
+            return False, "Gagal mendapatkan blob/sessionId dari Roblox"
 
         payload = {
             "clientKey": CONFIG['funbypass_api_key'],
