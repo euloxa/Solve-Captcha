@@ -62,7 +62,7 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
                 accounts.append((username, password))
     return accounts
 
-def get_roblox_blob() -> Optional[str]:
+def get_roblox_blob(username: str, password: str) -> Optional[str]:
     try:
         log("  → Fetching Roblox Blob...")
         session = requests.Session()
@@ -76,7 +76,17 @@ def get_roblox_blob() -> Optional[str]:
         
         session.get("https://www.roblox.com/", headers=headers, timeout=15)
         
-        login_payload = {"ctype": "Username", "cvalue": "dummy_user", "password": "dummy_pass"}
+        r_csrf = session.post("https://auth.roblox.com/v2/login", headers=headers, json={}, timeout=15)
+        csrf_token = r_csrf.headers.get("x-csrf-token")
+        
+        if not csrf_token:
+            log("  ❌ Gagal mendapatkan CSRF Token.")
+            return None
+        
+        log("  ✅ CSRF Token didapat.")
+        
+        headers["X-CSRF-Token"] = csrf_token
+        login_payload = {"ctype": "Username", "cvalue": username, "password": password}
         r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
         
         log(f"  → Status Code Roblox: {r.status_code}")
@@ -88,7 +98,7 @@ def get_roblox_blob() -> Optional[str]:
                 metadata = json.loads(decoded)
                 blob = metadata.get("dataExchangeBlob")
                 if blob:
-                    log(f"  ✅ Blob ditemukan! (Panjang: {len(blob)})")
+                    log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
                     return blob
             except Exception as e:
                 log(f"  ❌ Gagal decode metadata header: {e}")
@@ -102,15 +112,15 @@ def get_roblox_blob() -> Optional[str]:
         except Exception:
             pass
 
-        log(f"  ❌ Blob tidak ada. Respon: {r.text[:200]}")
+        log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:200]}")
         return None
     except Exception as e:
         log(f"  ❌ Error ambil blob: {e}")
         return None
 
-def solve_captcha() -> Tuple[bool, Optional[str]]:
+def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
     try:
-        blob = get_roblox_blob()
+        blob = get_roblox_blob(username, password)
         if not blob:
             return False, "Gagal mendapatkan blob dari Roblox (Cek Proxy/IP)"
 
@@ -206,7 +216,7 @@ def login_account(username: str, password: str, package: str, account_num: int) 
             log("   ✅ Credentials entered")
             
             log("3️⃣  Solving captcha...")
-            success, token = solve_captcha()
+            success, token = solve_captcha(username, password)
             
             if not success:
                 log(f"   ❌ Captcha failed: {token}")
