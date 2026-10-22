@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Roblox Auto Login - Simple Version (Updated FunBypass API + Blob Extraction v3)
+Roblox Auto Login - Simple Version (Updated FunBypass API + Blob Extraction v4)
 """
 
 import os
@@ -66,12 +66,11 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
             if username and password: accounts.append((username, password))
     return accounts
 
-# --- FUNGSI NGAMBIL BLOB (VERSI ULTRA) ---
+# --- FUNGSI NGAMBIL BLOB (VERSI FINAL - PAKE CSRF) ---
 def get_roblox_blob() -> Optional[str]:
     try:
-        log("  → Fetching Roblox Blob...")
+        log("  → Fetching Roblox Blob (v4 - CSRF)...")
         
-        # Header super lengkap biar mirip Chrome asli
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
@@ -79,9 +78,6 @@ def get_roblox_blob() -> Optional[str]:
             "Content-Type": "application/json",
             "Origin": "https://www.roblox.com",
             "Referer": "https://www.roblox.com/",
-            "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-site"
@@ -89,17 +85,28 @@ def get_roblox_blob() -> Optional[str]:
         
         session = requests.Session()
         
-        # 1. Buka homepage dulu buat dapet cookie .ROBLOSECURITY (guest)
+        # 1. Buka homepage buat dapet cookie
         session.get("https://www.roblox.com/", headers=headers, timeout=15)
         
-        # 2. Tembak login pakai kredensial dummy
+        # 2. Ambil CSRF Token (PENTING!)
+        # Tembak endpoint auth pake POST kosong, liat header x-csrf-token
+        r_csrf = session.post("https://auth.roblox.com/v2/login", headers=headers, json={}, timeout=15)
+        csrf_token = r_csrf.headers.get("x-csrf-token")
+        
+        if not csrf_token:
+            log("  ❌ Gagal dapat CSRF Token.")
+            return None
+        
+        log(f"  ✅ CSRF Token didapat.")
+        
+        # 3. Tembak login beneran pake CSRF Token
+        headers["X-CSRF-Token"] = csrf_token
         login_payload = {"ctype": "Username", "cvalue": "testuser", "password": "wrongpassword"}
         r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
         
-        # Tampilkan status code buat debug
         log(f"  → Status Code Roblox: {r.status_code}")
 
-        # 3. Coba ambil dari Header
+        # 4. Coba ambil dari Header
         metadata_b64 = r.headers.get("Rblx-Challenge-Metadata")
         if metadata_b64:
             decoded = base64.b64decode(metadata_b64).decode('utf-8')
@@ -109,11 +116,10 @@ def get_roblox_blob() -> Optional[str]:
                 log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
                 return blob
 
-        # 4. Cadangan: Coba ambil dari Body JSON
+        # 5. Cadangan: Coba ambil dari Body JSON
         if r.status_code in [403, 429]:
             try:
                 body_json = r.json()
-                # Kadang strukturnya beda
                 blob = body_json.get("data", {}).get("dataExchangeBlob") or body_json.get("dataExchangeBlob")
                 if blob:
                     log(f"  ✅ Blob ditemukan di Body! (Panjang: {len(blob)})")
@@ -121,7 +127,6 @@ def get_roblox_blob() -> Optional[str]:
             except Exception as e:
                 log(f"  ❌ Gagal parse body JSON: {e}")
 
-        # Kalau gagal total
         log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:100]}")
         return None
         
