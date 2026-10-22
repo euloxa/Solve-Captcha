@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Roblox Auto Login - Simple Version (Updated FunBypass API + Blob Extraction)
+Roblox Auto Login - Simple Version (Updated FunBypass API + Blob Extraction v3)
 """
 
 import os
@@ -9,7 +9,7 @@ import json
 import time
 import subprocess
 import requests
-import re
+import base64
 from datetime import datetime
 from typing import List, Tuple, Optional
 
@@ -19,6 +19,7 @@ VIA_PACKAGES = [
 ]
 
 CONFIG = {
+    # ISI API KEY LU DI SINI
     "funbypass_api_key": "", 
     "funbypass_api_url": "https://api.funbypass.com",
     "roblox_login_url": "https://www.roblox.com/login",
@@ -65,50 +66,75 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
             if username and password: accounts.append((username, password))
     return accounts
 
-# --- FUNGSI BARU: NGAMBIL BLOB DARI ROBLOX ---
+# --- FUNGSI NGAMBIL BLOB (VERSI ULTRA) ---
 def get_roblox_blob() -> Optional[str]:
     try:
         log("  → Fetching Roblox Blob...")
+        
+        # Header super lengkap biar mirip Chrome asli
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/json",
+            "Origin": "https://www.roblox.com",
             "Referer": "https://www.roblox.com/",
+            "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site"
         }
-        # 1. Ambil cookies awal
+        
         session = requests.Session()
-        session.get("https://www.roblox.com/home", headers=headers, timeout=15)
         
-        # 2. Tembak endpoint login buat dapet 403 + metadata
-        login_data = {"username": "test", "password": "test"} # Pake dummy, kita cuma butuh response 403
-        r = session.post("https://auth.roblox.com/v2/login", json=login_data, headers=headers, timeout=15)
+        # 1. Buka homepage dulu buat dapet cookie .ROBLOSECURITY (guest)
+        session.get("https://www.roblox.com/", headers=headers, timeout=15)
         
-        # 3. Ekstrak header Rblx-Challenge-Metadata
+        # 2. Tembak login pakai kredensial dummy
+        login_payload = {"ctype": "Username", "cvalue": "testuser", "password": "wrongpassword"}
+        r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
+        
+        # Tampilkan status code buat debug
+        log(f"  → Status Code Roblox: {r.status_code}")
+
+        # 3. Coba ambil dari Header
         metadata_b64 = r.headers.get("Rblx-Challenge-Metadata")
-        if not metadata_b64:
-            return None
-            
-        # 4. Decode base64 dan ambil field 'dataExchangeBlob'
-        import base64
-        decoded = base64.b64decode(metadata_b64).decode('utf-8')
-        metadata = json.loads(decoded)
-        
-        blob = metadata.get("dataExchangeBlob")
-        if blob:
-            log(f"  ✅ Blob ditemukan! (Panjang: {len(blob)} karakter)")
-            return blob
+        if metadata_b64:
+            decoded = base64.b64decode(metadata_b64).decode('utf-8')
+            metadata = json.loads(decoded)
+            blob = metadata.get("dataExchangeBlob")
+            if blob:
+                log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
+                return blob
+
+        # 4. Cadangan: Coba ambil dari Body JSON
+        if r.status_code in [403, 429]:
+            try:
+                body_json = r.json()
+                # Kadang strukturnya beda
+                blob = body_json.get("data", {}).get("dataExchangeBlob") or body_json.get("dataExchangeBlob")
+                if blob:
+                    log(f"  ✅ Blob ditemukan di Body! (Panjang: {len(blob)})")
+                    return blob
+            except Exception as e:
+                log(f"  ❌ Gagal parse body JSON: {e}")
+
+        # Kalau gagal total
+        log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:100]}")
         return None
+        
     except Exception as e:
-        log(f"  ❌ Gagal ambil blob: {e}")
+        log(f"  ❌ Error ambil blob: {e}")
         return None
 
-# --- UPDATE FUNGSI SOLVE_CAPTCHA ---
+# --- FUNGSI SOLVE_CAPTCHA ---
 def solve_captcha() -> Tuple[bool, Optional[str]]:
     try:
-        # Ambil blob dulu
         blob = get_roblox_blob()
         if not blob:
-            return False, "Gagal mendapatkan blob dari Roblox"
+            return False, "Gagal mendapatkan blob dari Roblox (Cek Proxy/IP)"
 
         payload = {
             "clientKey": CONFIG['funbypass_api_key'],
@@ -118,8 +144,7 @@ def solve_captcha() -> Tuple[bool, Optional[str]]:
                 "websitePublicKey": CONFIG['roblox_funcaptcha_key'],
                 "websiteSubdomain": CONFIG['roblox_subdomain'],
                 "proxy": CONFIG['proxy_url'],
-                # --- INI DIA YANG KURANG KEMARIN ---
-                "data": json.dumps({"blob": blob}) 
+                "data": json.dumps({"blob": blob})
             }
         }
         
@@ -149,7 +174,6 @@ def solve_captcha() -> Tuple[bool, Optional[str]]:
                     if token: return True, token
                     return False, "Token kosong"
                 return False, f"Task fail: {result.get('errorCode')}"
-                
             elif result.get("status") == "failure":
                 return False, f"Task failure: {result.get('errorCode')}"
                 
@@ -157,6 +181,7 @@ def solve_captcha() -> Tuple[bool, Optional[str]]:
     except Exception as e:
         return False, str(e)
 
+# --- FUNGSI UTAMA ---
 def launch_via_browser(package: str, url: str) -> bool:
     cmd = f"am start -n {package}/.MainActivity -d '{url}'"
     success, _ = run_command(cmd)
@@ -221,7 +246,6 @@ def main():
     print("=" * 60); print("🤖 ROBLOX AUTO LOGIN"); print("=" * 60); print()
     if len(sys.argv) < 2:
         print("Usage: python3 auto_login.py <accounts_file>")
-        print("Example: python3 auto_login.py device1.txt")
         return 1
     
     accounts_file = sys.argv[1]
