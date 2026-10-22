@@ -15,8 +15,12 @@ CONFIG = {
     "roblox_login_url": "https://www.roblox.com/login",
     "roblox_funcaptcha_key": "476068BF-9607-4799-B53D-966BE98E2B81",
     "roblox_subdomain": "client-api",
-    "delay_after_launch": 5, "delay_after_input": 1, "delay_between_accounts": 120,
-    "username_field": [540, 400], "password_field": [540, 500], "login_button": [540, 600],
+    "delay_after_launch": 8,
+    "delay_after_input": 2,
+    "delay_between_accounts": 180,
+    "username_field": [540, 400],
+    "password_field": [540, 500],
+    "login_button": [540, 600],
     "max_captcha_retries": 1
 }
 
@@ -41,9 +45,13 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
                 accounts.append((u.strip(), p.strip()))
     return accounts
 
-def get_roblox_blob(username: str, password: str) -> Optional[str]:
+def get_roblox_blob(username: str, password: str, proxy_str: str) -> Optional[str]:
     try:
         session = requests.Session()
+        session.proxies = {
+            "http": proxy_str,
+            "https": proxy_str
+        }
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Content-Type": "application/json", "Origin": "https://www.roblox.com",
@@ -71,7 +79,7 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
 
 def solve_captcha(username: str, password: str, proxy_str: str) -> Tuple[bool, Optional[str]]:
     try:
-        blob = get_roblox_blob(username, password)
+        blob = get_roblox_blob(username, password, proxy_str)
         if not blob: 
             return False, "Gagal mendapatkan blob/sessionId dari Roblox"
 
@@ -83,7 +91,14 @@ def solve_captcha(username: str, password: str, proxy_str: str) -> Tuple[bool, O
                 "websitePublicKey": CONFIG['roblox_funcaptcha_key'],
                 "websiteSubdomain": CONFIG['roblox_subdomain'],
                 "proxy": proxy_str,
-                "data": json.dumps({"blob": blob})
+                "data": json.dumps({"blob": blob}),
+                "headers": {
+                    "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                    "sec-ch-ua-platform": '"Android"',
+                    "sec-ch-ua-mobile": "?1",
+                    "accept-language": "en-US,en;q=0.9"
+                }
             }
         }
         log("  → Creating FunBypass Task...")
@@ -119,13 +134,16 @@ def launch_via_browser(package: str, url: str) -> bool:
     return success
 
 def force_stop(package: str):
-    run_command(f"am force-stop {package}"); time.sleep(1)
+    run_command(f"am force-stop {package}")
+    time.sleep(1)
 
 def input_text(text: str):
-    run_command(f"input text '{text.replace(' ', '%s')}'"); time.sleep(CONFIG['delay_after_input'])
+    run_command(f"input text '{text.replace(' ', '%s')}'")
+    time.sleep(CONFIG['delay_after_input'])
 
 def tap(x: int, y: int):
-    run_command(f"input tap {x} {y}"); time.sleep(CONFIG['delay_after_input'])
+    run_command(f"input tap {x} {y}")
+    time.sleep(CONFIG['delay_after_input'])
 
 def login_account(username: str, password: str, package: str, account_num: int, proxy_str: str) -> bool:
     log(f"\n{'-'*60}\nACCOUNT #{account_num}: {username}\nProxy: {proxy_str.split('@')[1]}\n{'-'*60}")
@@ -138,8 +156,10 @@ def login_account(username: str, password: str, package: str, account_num: int, 
             return False
             
         log("2️⃣ Inputting credentials...")
-        tap(*CONFIG['username_field']); input_text(username)
-        tap(*CONFIG['password_field']); input_text(password)
+        tap(*CONFIG['username_field'])
+        input_text(username)
+        tap(*CONFIG['password_field'])
+        input_text(password)
         log("   ✅ Credentials entered")
         
         log("3️⃣ Solving captcha...")
@@ -164,22 +184,33 @@ def login_account(username: str, password: str, package: str, account_num: int, 
     return False
 
 def main():
-    if len(sys.argv) < 2: print("Usage: python3 auto_login.py <accounts_file>"); return 1
+    if len(sys.argv) < 2: 
+        print("Usage: python3 auto_login.py <accounts_file>")
+        return 1
     accounts = load_accounts(sys.argv[1])
-    if not accounts: log("❌ No accounts found!"); return 1
+    if not accounts: 
+        log("❌ No accounts found!")
+        return 1
     
     success, failed = 0, []
     for idx, (username, password) in enumerate(accounts, 1):
-        if idx > len(VIA_PACKAGES): failed.append(username); continue
+        if idx > len(VIA_PACKAGES): 
+            failed.append(username)
+            continue
         
         proxy_str = PROXIES[(idx - 1) % len(PROXIES)]
         
-        if login_account(username, password, VIA_PACKAGES[idx-1], idx, proxy_str): success += 1
-        else: failed.append(username)
-        if idx < len(accounts): time.sleep(CONFIG['delay_between_accounts'])
+        if login_account(username, password, VIA_PACKAGES[idx-1], idx, proxy_str): 
+            success += 1
+        else: 
+            failed.append(username)
+        if idx < len(accounts): 
+            time.sleep(CONFIG['delay_between_accounts'])
     
     print(f"\n{'='*60}\n📊 SUMMARY\n{'='*60}\nTotal: {len(accounts)} | ✅ Success: {success} | ❌ Failed: {len(failed)}")
-    for u in failed: print(f"  - {u}")
+    for u in failed: 
+        print(f"  - {u}")
     return 0
 
-if __name__ == "__main__": sys.exit(main())
+if __name__ == "__main__": 
+    sys.exit(main())
