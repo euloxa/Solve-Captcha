@@ -90,22 +90,35 @@ def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Option
         r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
         
         log(f"  → Status Code Roblox: {r.status_code}")
-        
-        print("HEADERS:", dict(r.headers))
-        
+
         cookies_str = "; ".join([f"{k}={v}" for k, v in session.cookies.get_dict().items()])
 
-        metadata_b64 = r.headers.get("Rblx-Challenge-Metadata") or r.headers.get("rblx-challenge-metadata")
+        metadata_b64 = r.headers.get("rblx-challenge-metadata") or r.headers.get("Rblx-Challenge-Metadata")
+        
         if metadata_b64:
+            padding_needed = len(metadata_b64) % 4
+            if padding_needed:
+                metadata_b64 += "=" * (4 - padding_needed)
+            
             try:
-                decoded = base64.b64decode(metadata_b64).decode('utf-8')
+                try:
+                    decoded = base64.b64decode(metadata_b64).decode('utf-8')
+                except Exception:
+                    decoded = base64.urlsafe_b64decode(metadata_b64).decode('utf-8')
+                    
                 metadata = json.loads(decoded)
+                log(f"  [DEBUG] Isi Metadata: {json.dumps(metadata)[:300]}...")
+                
                 blob = metadata.get("dataExchangeBlob")
                 if blob:
                     log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
                     return blob, cookies_str
+                else:
+                    log(f"  ❌ 'dataExchangeBlob' tidak ada di metadata! Keys: {list(metadata.keys())}")
             except Exception as e:
                 log(f"  ❌ Gagal decode metadata header: {e}")
+        else:
+            log("  ❌ Header 'rblx-challenge-metadata' tidak ditemukan di response!")
 
         try:
             body_json = r.json()
