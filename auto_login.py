@@ -68,7 +68,12 @@ def get_roblox_blob(username: str, password: str) -> Optional[str]:
 def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
     try:
         blob = get_roblox_blob(username, password)
-        if not blob: return False, "Gagal mendapatkan blob/sessionId"
+        if not blob: 
+            return False, "Gagal mendapatkan blob/sessionId dari Roblox"
+
+        proxy_str = CONFIG['proxy_url']
+        if not proxy_str.startswith(("http://", "socks4://", "socks5://")) or proxy_str.count(':') < 3:
+            return False, "Format proxy salah. Gunakan format: protocol://user:pass@ip:port"
 
         payload = {
             "clientKey": CONFIG['funbypass_api_key'],
@@ -77,25 +82,36 @@ def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
                 "websiteURL": CONFIG['roblox_login_url'],
                 "websitePublicKey": CONFIG['roblox_funcaptcha_key'],
                 "websiteSubdomain": CONFIG['roblox_subdomain'],
-                "proxy": CONFIG['proxy_url'],
+                "proxy": proxy_str,
                 "data": json.dumps({"blob": blob})
             }
         }
         log("  → Creating FunBypass Task...")
         resp = requests.post(f"{CONFIG['funbypass_api_url']}/createTask", json=payload, timeout=30).json()
-        if resp.get("errorId", 0) != 0: return False, f"{resp.get('errorCode')} - {resp.get('errorDescription')}"
+        
+        if resp.get("errorId", 0) != 0: 
+            return False, f"{resp.get('errorCode')} - {resp.get('errorDescription')}"
             
         task_id = resp.get("taskId")
         log(f"  → Task ID: {task_id}, polling...")
+        
         for _ in range(150):
             time.sleep(2)
             res = requests.get(f"{CONFIG['funbypass_api_url']}/getTaskResult/{task_id}", timeout=10).json()
+            
             if res.get("status") == "ready":
-                if res.get("errorId", 0) == 0: return True, res.get("solution", {}).get("token")
+                if res.get("errorId", 0) == 0:
+                    token = res.get("solution", {}).get("token")
+                    if token: return True, token
+                    return False, "API ready tapi token kosong."
                 return False, f"Task fail: {res.get('errorCode')} - {res.get('errorDescription')}"
-            elif res.get("status") == "failure": return False, f"Task failure: {res.get('errorCode')}"
+            
+            elif res.get("status") == "failure": 
+                return False, f"Task failure: {res.get('errorCode')} - {res.get('errorDescription')}"
+                
         return False, "Timeout"
-    except Exception as e: return False, str(e)
+    except Exception as e: 
+        return False, str(e)
 
 def launch_via_browser(package: str, url: str) -> bool:
     success, _ = run_command(f"am start -n {package}/.MainActivity -d '{url}'")
@@ -115,18 +131,35 @@ def login_account(username: str, password: str, package: str, account_num: int) 
     log(f"\n{'-'*60}\nACCOUNT #{account_num}: {username}\n{'-'*60}")
     for retry in range(CONFIG['max_captcha_retries'] + 1):
         if retry > 0: log(f"🔄 Retry {retry}/{CONFIG['max_captcha_retries']}")
-        if not launch_via_browser(package, CONFIG['roblox_login_url']): return False
+        
+        log("1️⃣ Launching Via Browser...")
+        if not launch_via_browser(package, CONFIG['roblox_login_url']):
+            log("   ❌ Launch failed")
+            return False
+            
+        log("2️⃣ Inputting credentials...")
         tap(*CONFIG['username_field']); input_text(username)
         tap(*CONFIG['password_field']); input_text(password)
+        log("   ✅ Credentials entered")
         
+        log("3️⃣ Solving captcha...")
         success, token = solve_captcha(username, password)
-        if not success:
+        
+        if not success or not token:
             log(f"   ❌ Captcha failed: {token}")
-            force_stop(package); time.sleep(3); continue
+            force_stop(package)
+            time.sleep(3)
+            continue
         
         log(f"   ✅ Captcha solved! Token: {token[:20]}...")
-        tap(*CONFIG['login_button']); time.sleep(5)
+        log("4️⃣ Submitting login...")
+        tap(*CONFIG['login_button'])
+        time.sleep(5)
+        log("   ✅ Login submitted!")
+        
+        log("5️⃣ Closing browser...")
         force_stop(package)
+        log("✅ SUCCESS: Login complete!")
         return True
     return False
 
