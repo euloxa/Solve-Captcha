@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Roblox Auto Login - Simple Version (Updated FunBypass API + Blob Extraction v4)
+Roblox Auto Login - Simple Version (Updated FunBypass API + Blob Extraction v5)
 """
 
 import os
@@ -66,10 +66,10 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
             if username and password: accounts.append((username, password))
     return accounts
 
-# --- FUNGSI NGAMBIL BLOB (VERSI FINAL - PAKE CSRF) ---
+# --- FUNGSI NGAMBIL BLOB (VERSI FINAL v5) ---
 def get_roblox_blob() -> Optional[str]:
     try:
-        log("  → Fetching Roblox Blob (v4 - CSRF)...")
+        log("  → Fetching Roblox Blob (v5 - CSRF + Header Decode)...")
         
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -85,11 +85,10 @@ def get_roblox_blob() -> Optional[str]:
         
         session = requests.Session()
         
-        # 1. Buka homepage buat dapet cookie
+        # 1. Buka homepage buat dapet cookie guest
         session.get("https://www.roblox.com/", headers=headers, timeout=15)
         
-        # 2. Ambil CSRF Token (PENTING!)
-        # Tembak endpoint auth pake POST kosong, liat header x-csrf-token
+        # 2. Ambil CSRF Token
         r_csrf = session.post("https://auth.roblox.com/v2/login", headers=headers, json={}, timeout=15)
         csrf_token = r_csrf.headers.get("x-csrf-token")
         
@@ -99,22 +98,26 @@ def get_roblox_blob() -> Optional[str]:
         
         log(f"  ✅ CSRF Token didapat.")
         
-        # 3. Tembak login beneran pake CSRF Token
+        # 3. Tembak login pake CSRF Token
         headers["X-CSRF-Token"] = csrf_token
         login_payload = {"ctype": "Username", "cvalue": "testuser", "password": "wrongpassword"}
         r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
         
         log(f"  → Status Code Roblox: {r.status_code}")
 
-        # 4. Coba ambil dari Header
+        # 4. Ekstrak Blob dari Header
         metadata_b64 = r.headers.get("Rblx-Challenge-Metadata")
         if metadata_b64:
-            decoded = base64.b64decode(metadata_b64).decode('utf-8')
-            metadata = json.loads(decoded)
-            blob = metadata.get("dataExchangeBlob")
-            if blob:
-                log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
-                return blob
+            try:
+                decoded = base64.b64decode(metadata_b64).decode('utf-8')
+                metadata = json.loads(decoded)
+                # Blob biasanya ada di key 'dataExchangeBlob'
+                blob = metadata.get("dataExchangeBlob")
+                if blob:
+                    log(f"  ✅ Blob ditemukan di Header! (Panjang: {len(blob)})")
+                    return blob
+            except Exception as e:
+                log(f"  ❌ Gagal decode metadata header: {e}")
 
         # 5. Cadangan: Coba ambil dari Body JSON
         if r.status_code in [403, 429]:
