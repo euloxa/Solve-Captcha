@@ -5,7 +5,6 @@ import json
 import time
 import subprocess
 import requests
-import base64
 from datetime import datetime
 from typing import List, Tuple, Optional
 
@@ -15,12 +14,12 @@ VIA_PACKAGES = [
 ]
 
 CONFIG = {
-    "funbypass_api_key": "", 
+    "funbypass_api_key": "ISI_API_KEY_LU", 
     "funbypass_api_url": "https://api.funbypass.com",
     "roblox_login_url": "https://www.roblox.com/login",
     "roblox_funcaptcha_key": "476068BF-9607-4799-B53D-966BE98E2B81",
-    "roblox_subdomain": "roblox-api.arkoselabs.com",
-    "proxy_url": "", 
+    "roblox_subdomain": "client-api",
+    "proxy_url": "socks5://user:pass@ip:port", 
     "delay_after_launch": 5,
     "delay_after_input": 1,
     "delay_between_accounts": 120,
@@ -62,97 +61,8 @@ def load_accounts(filename: str) -> List[Tuple[str, str]]:
                 accounts.append((username, password))
     return accounts
 
-def get_roblox_blob(username: str, password: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def solve_captcha() -> Tuple[bool, Optional[str]]:
     try:
-        log("  → Fetching Roblox Blob...")
-        session = requests.Session()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json",
-            "Origin": "https://www.roblox.com",
-            "Referer": "https://www.roblox.com/"
-        }
-        
-        session.get("https://www.roblox.com/", headers=headers, timeout=15)
-        
-        r_csrf = session.post("https://auth.roblox.com/v2/login", headers=headers, json={}, timeout=15)
-        csrf_token = r_csrf.headers.get("x-csrf-token")
-        
-        if not csrf_token:
-            log("  ❌ Gagal mendapatkan CSRF Token.")
-            return None, None, None
-        
-        log("  ✅ CSRF Token didapat.")
-        
-        headers["X-CSRF-Token"] = csrf_token
-        login_payload = {"ctype": "Username", "cvalue": username, "password": password}
-        r = session.post("https://auth.roblox.com/v2/login", json=login_payload, headers=headers, timeout=15)
-        
-        log(f"  → Status Code Roblox: {r.status_code}")
-        
-        cookies_str = "; ".join([f"{k}={v}" for k, v in session.cookies.get_dict().items()])
-
-        metadata_b64 = r.headers.get("rblx-challenge-metadata") or r.headers.get("Rblx-Challenge-Metadata")
-        challenge_id = r.headers.get("rblx-challenge-id") or r.headers.get("Rblx-Challenge-Id")
-        
-        if metadata_b64:
-            padding_needed = len(metadata_b64) % 4
-            if padding_needed:
-                metadata_b64 += "=" * (4 - padding_needed)
-            
-            try:
-                try:
-                    decoded = base64.b64decode(metadata_b64).decode('utf-8')
-                except Exception:
-                    decoded = base64.urlsafe_b64decode(metadata_b64).decode('utf-8')
-                    
-                metadata = json.loads(decoded)
-                log(f"  [DEBUG] Metadata Lengkap: {json.dumps(metadata, indent=2)}")
-                
-                blob = metadata.get("dataExchangeBlob")
-                session_id = metadata.get("sessionId")
-                generic_id = metadata.get("genericChallengeId")
-                
-                if blob:
-                    log(f"  ✅ Blob ditemukan (format lama)! (Panjang: {len(blob)})")
-                    return blob, cookies_str, challenge_id
-                
-                if session_id:
-                    log(f"  ✅ sessionId ditemukan (format baru): {session_id}")
-                    return session_id, cookies_str, challenge_id
-                
-                if generic_id:
-                    log(f"  ✅ genericChallengeId ditemukan: {generic_id}")
-                    return generic_id, cookies_str, challenge_id
-                
-                log(f"  ❌ Tidak ada blob/sessionId yang dikenali. Keys: {list(metadata.keys())}")
-            except Exception as e:
-                log(f"  ❌ Gagal decode metadata header: {e}")
-        else:
-            log("  ❌ Header 'rblx-challenge-metadata' tidak ditemukan di response!")
-
-        try:
-            body_json = r.json()
-            blob = body_json.get("data", {}).get("dataExchangeBlob") or body_json.get("dataExchangeBlob")
-            if blob:
-                log(f"  ✅ Blob ditemukan di Body! (Panjang: {len(blob)})")
-                return blob, cookies_str, challenge_id
-        except Exception:
-            pass
-
-        log(f"  ❌ Blob tidak ada. Respon Roblox: {r.text[:300]}")
-        return None, None, None
-    except Exception as e:
-        log(f"  ❌ Error ambil blob: {e}")
-        return None, None, None
-
-def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
-    try:
-        blob, cookies_str, challenge_id = get_roblox_blob(username, password)
-        if not blob:
-            return False, "Gagal mendapatkan blob/sessionId dari Roblox"
-
         payload = {
             "clientKey": CONFIG['funbypass_api_key'],
             "task": {
@@ -160,10 +70,7 @@ def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
                 "websiteURL": CONFIG['roblox_login_url'],
                 "websitePublicKey": CONFIG['roblox_funcaptcha_key'],
                 "websiteSubdomain": CONFIG['roblox_subdomain'],
-                "proxy": CONFIG['proxy_url'],
-                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                "cookies": cookies_str,
-                "data": json.dumps({"blob": blob})
+                "proxy": CONFIG['proxy_url']
             }
         }
         
@@ -171,7 +78,7 @@ def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
         response = requests.post(f"{CONFIG['funbypass_api_url']}/createTask", json=payload, timeout=30)
         
         if response.status_code != 200:
-            return False, f"HTTP Error: {response.status_code}"
+            return False, f"HTTP Error: {response.status_code} - {response.text}"
             
         data = response.json()
         if data.get("errorId", 0) != 0:
@@ -181,8 +88,8 @@ def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
         log(f"  → Task ID: {task_id}, polling...")
         
         start_time = time.time()
-        while time.time() - start_time < 120:
-            time.sleep(2)
+        while time.time() - start_time < 300:
+            time.sleep(0.5)
             poll_url = f"{CONFIG['funbypass_api_url']}/getTaskResult/{task_id}"
             result = requests.get(poll_url, timeout=10).json()
             
@@ -191,10 +98,10 @@ def solve_captcha(username: str, password: str) -> Tuple[bool, Optional[str]]:
                     token = result.get("solution", {}).get("token")
                     if token:
                         return True, token
-                    return False, "Token kosong"
-                return False, f"Task fail: {result.get('errorCode')}"
+                    return False, "Token kosong dari API"
+                return False, f"Task fail: {result.get('errorCode')} - {result.get('errorDescription')}"
             elif result.get("status") == "failure":
-                return False, f"Task failure: {result.get('errorCode')}"
+                return False, f"Task failure: {result.get('errorCode')} - {result.get('errorDescription')}"
                 
         return False, "Timeout"
     except Exception as e:
@@ -247,7 +154,7 @@ def login_account(username: str, password: str, package: str, account_num: int) 
             log("   ✅ Credentials entered")
             
             log("3️⃣  Solving captcha...")
-            success, token = solve_captcha(username, password)
+            success, token = solve_captcha()
             
             if not success:
                 log(f"   ❌ Captcha failed: {token}")
