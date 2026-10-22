@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Roblox Auto Login - Simple Version (Updated FunBypass API)
+Roblox Auto Login - Simple Version (Updated FunBypass API + Debug)
 """
 
 import os
@@ -27,15 +27,15 @@ VIA_PACKAGES = [
 
 CONFIG = {
     # ISI API KEY LU DI SINI
-    "funbypass_api_key": "FUN-GHRXV8FVZOTZCJQB", 
+    "funbypass_api_key": "FUN", 
     "funbypass_api_url": "https://api.funbypass.com",
     "roblox_login_url": "https://www.roblox.com/login",
     "roblox_funcaptcha_key": "476068BF-9607-4799-B53D-966BE98E2B81",
     "roblox_subdomain": "client-api",
     
-    # ISI PROXY LU DI SINI (WAJIB!)
-    # Contoh: "http://user:pass@1.2.3.4:8080"
-    "proxy_url": "http://user:pass@ip:port", 
+    # ⚠️ ISI PROXY LU DI SINI (FORMAT SOCKS5!) ⚠️
+    # Contoh: "socks5://user:pass@host:port"
+    "proxy_url": "", 
     
     "delay_after_launch": 5,
     "delay_after_input": 1,
@@ -132,16 +132,19 @@ def solve_captcha() -> Tuple[bool, Optional[str]]:
             poll_url = f"{CONFIG['funbypass_api_url']}/getTaskResult/{task_id}"
             result = requests.get(poll_url, timeout=10).json()
             
+            # --- INI DEBUGGER NYA BRO ---
+            print(f"[DEBUG] Respon API: {result}")
+            
             if result.get("status") == "ready":
                 if result.get("errorId", 0) == 0:
                     token = result.get("solution", {}).get("token")
                     if token:
                         return True, token
-                    return False, "Token kosong"
-                return False, f"Task fail: {result.get('errorCode')}"
+                    return False, "Token kosong (API ready tapi token tidak ada)"
+                return False, f"Task fail: {result.get('errorCode')} - {result.get('errorDescription')}"
                 
             elif result.get("status") == "failure":
-                return False, f"Task failure: {result.get('errorCode')}"
+                return False, f"Task failure: {result.get('errorCode')} - {result.get('errorDescription')}"
                 
         return False, "Timeout"
     
